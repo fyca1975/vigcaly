@@ -4,127 +4,102 @@ import pandas as pd
 import numpy as np
 import logging
 from datetime import datetime
-from glob import glob
 
 # Configurar logging
-os.makedirs("logs", exist_ok=True)
+log_dir = "logs"
+os.makedirs(log_dir, exist_ok=True)
 logging.basicConfig(
-    filename="logs/log_script.log",
+    filename=os.path.join(log_dir, "procesamiento.log"),
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
+    format="%(asctime)s - %(levelname)s - %(message)s"
 )
-logger = logging.getLogger()
 
-# Log para no encontrados
-not_found_log_path = "logs/log_no_encontrados.txt"
+no_encontrados_path = os.path.join(log_dir, "log_no_encontrados.txt")
 
-# Carpetas
+# Rutas
 DATA_DIR = "data"
 BK_DIR = "BK"
 PROCESADOS_DIR = "procesados"
-
-# Crear carpetas si no existen
 os.makedirs(BK_DIR, exist_ok=True)
 os.makedirs(PROCESADOS_DIR, exist_ok=True)
 
 
 def respaldar_archivos():
-    for file in glob(f"{DATA_DIR}/*.csv"):
-        shutil.copy(file, BK_DIR)
-    logger.info("Archivos respaldados correctamente.")
+    for archivo in os.listdir(DATA_DIR):
+        origen = os.path.join(DATA_DIR, archivo)
+        destino = os.path.join(BK_DIR, archivo)
+        shutil.copy2(origen, destino)
+    logging.info("Todos los archivos han sido respaldados correctamente.")
 
 
-def leer_csv(path):
+def cargar_csv_sin_encabezado(path, usecols=None):
+    return pd.read_csv(path, sep=";", header=None, usecols=usecols, skiprows=1, dtype=str)
+
+
+def normalizar_valor(valor):
+    return str(valor).lstrip("0") if pd.notna(valor) else ""
+
+
+def procesar_vig_transaci(file_name):
+    fecha_aammdd = file_name.split("_")[-1].split(".")[0][-6:]
+    fecha_aaaammdd = "20" + fecha_aammdd
+
+    path_vig = os.path.join(DATA_DIR, file_name)
+    df_vig = pd.read_csv(path_vig, sep=";", header=None, skiprows=1, dtype=str)
+
+    # Cargar archivos secundarios
     try:
-        return pd.read_csv(path, sep=';', skiprows=1, header=None, encoding='latin1')
-    except Exception as e:
-        logger.error(f"Error al leer archivo {path}: {e}")
-        return None
-
-
-def normalizar(valor):
-    return str(int(valor)) if pd.notna(valor) and str(valor).isdigit() else str(valor)
-
-
-def procesar_archivo_vig(vig_path):
-    # Extraer fechas del nombre
-    filename = os.path.basename(vig_path)
-    fecha_daammdd = filename.split("_")[-1].replace(".csv", "")
-    fecha_aaaammdd = "20" + fecha_daammdd  # asume siglo 21
-
-    # Construir rutas
-    path_div = os.path.join(DATA_DIR, f"fwd_div_Calypso_{fecha_aaaammdd}.csv")
-    path_usd = os.path.join(DATA_DIR, f"fwd_usd_Calypso_{fecha_aaaammdd}.csv")
-    path_liq = os.path.join(DATA_DIR, f"LIQUIDACIONES_{fecha_aaaammdd}.csv")
-
-    # Leer archivos
-    vig_df = leer_csv(vig_path)
-    div_df = leer_csv(path_div)
-    usd_df = leer_csv(path_usd)
-    liq_df = leer_csv(path_liq)
-
-    if vig_df is None:
-        logger.error("No se pudo procesar el archivo VIG.")
+        fwd_div = cargar_csv_sin_encabezado(os.path.join(DATA_DIR, f"fwd_div_Calypso_{fecha_aaaammdd}.csv"), usecols=[0, 43])
+        fwd_usd = cargar_csv_sin_encabezado(os.path.join(DATA_DIR, f"fwd_usd_Calypso_{fecha_aaaammdd}.csv"), usecols=[0, 34])
+        liqui = cargar_csv_sin_encabezado(os.path.join(DATA_DIR, f"LIQUIDACIONES_{fecha_aaaammdd}.csv"), usecols=[0, 17])
+    except FileNotFoundError as e:
+        logging.error(f"Archivo secundario faltante: {e}")
         return
 
-    encontrados = modificados = no_encontrados = 0
+    no_encontrados = []
 
-    with open(not_found_log_path, "a", encoding="utf-8") as nf:
-        for idx, row in vig_df.iterrows():
-            if len(row) < 5:
-                continue
+    for idx, row in df_vig.iterrows():
+        clave = normalizar_valor(row[4])
+        nuevo_valor = "no encontrado"
 
-            val_comparar = normalizar(row[4])
-            nuevo_valor = None
+        # Buscar en fwd_div
+        match = fwd_div[fwd_div[43].apply(normalizar_valor) == clave]
+        if not match.empty:
+            nuevo_valor = match.iloc[0, 0]
+            origen = "fwd_div"
 
-            # Buscar en fwd_div
-            if div_df is not None:
-                match = div_df[div_df[44].apply(normalizar) == val_comparar]
-                if not match.empty:
-                    nuevo_valor = match.iloc[0, 0]
+        else:
+            match = fwd_usd[fwd_usd[34].apply(normalizar_valor) == clave]
+            if not match.empty:
+                nuevo_valor = match.iloc[0, 0]
+                origen = "fwd_usd"
 
-            # Buscar en fwd_usd
-            if nuevo_valor is None and usd_df is not None:
-                match = usd_df[usd_df[44].apply(normalizar) == val_comparar]
-                if not match.empty:
-                    nuevo_valor = match.iloc[0, 0]
-
-            # Buscar en LIQUIDACIONES
-            if nuevo_valor is None and liq_df is not None:
-                match = liq_df[liq_df[1].apply(normalizar) == val_comparar]
-                if not match.empty and liq_df.shape[1] >= 21:
-                    nuevo_valor = match.iloc[0, 20]
-
-            if nuevo_valor:
-                vig_df.at[idx, 3] = nuevo_valor
-                logger.info(f"Fila {idx}: reemplazado valor columna 4 por {nuevo_valor}")
-                modificados += 1
             else:
-                vig_df.at[idx, 3] = "no encontrado"
-                nf.write(f"No encontrado: fila {idx}, valor {val_comparar}\n")
-                logger.warning(f"No encontrado: fila {idx}, valor {val_comparar}")
-                no_encontrados += 1
+                match = liqui[liqui[0].apply(normalizar_valor) == clave]
+                if not match.empty:
+                    nuevo_valor = liqui.iloc[0, 1]
+                    origen = "LIQUIDACIONES"
+                else:
+                    origen = "ninguno"
+                    no_encontrados.append(f"Fila {idx+2}: valor {clave} no encontrado.")
 
-            encontrados += 1
+        df_vig.at[idx, 3] = nuevo_valor
+        logging.info(f"Fila {idx+2}: valor columna 4 actualizado con '{nuevo_valor}' desde {origen}.")
 
-    output_path = os.path.join(PROCESADOS_DIR, filename)
-    try:
-        vig_df.to_csv(output_path, sep=';', header=False, index=False, encoding='latin1')
-        logger.info(f"Archivo procesado guardado en: {output_path}")
-    except Exception as e:
-        logger.error(f"Error al guardar archivo procesado: {e}")
+    # Guardar archivo procesado
+    output_path = os.path.join(PROCESADOS_DIR, file_name)
+    df_vig.to_csv(output_path, sep=";", index=False, header=False)
 
-    logger.info(f"Resumen archivo {filename}: Total={encontrados}, Modificados={modificados}, No encontrados={no_encontrados}")
+    # Guardar log de no encontrados
+    with open(no_encontrados_path, "a", encoding="utf-8") as f:
+        for linea in no_encontrados:
+            f.write(linea + "\n")
 
-
-def procesar_todos():
-    respaldar_archivos()
-    archivos = glob(f"{DATA_DIR}/VIG_TRANSACI_CALYPSO_*.csv")
-    if not archivos:
-        logger.warning("No se encontraron archivos VIG_TRANSACI_CALYPSO en data/")
-    for path in archivos:
-        procesar_archivo_vig(path)
+    logging.info(f"Archivo procesado y guardado: {output_path}")
 
 
 if __name__ == "__main__":
-    procesar_todos()
+    respaldar_archivos()
+    for archivo in os.listdir(DATA_DIR):
+        if archivo.startswith("VIG_TRANSACI_CALYPSO_D") and archivo.endswith(".csv"):
+            procesar_vig_transaci(archivo)

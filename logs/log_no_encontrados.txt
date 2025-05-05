@@ -1,0 +1,7 @@
+Fila 4: valor dato_5_3 no encontrado.
+Fila 5: valor dato_5_4 no encontrado.
+Fila 7: valor dato_5_6 no encontrado.
+Fila 8: valor dato_5_7 no encontrado.
+Fila 9: valor dato_5_8 no encontrado.
+Fila 10: valor dato_5_9 no encontrado.
+Fila 11: valor dato_5_10 no encontrado.
