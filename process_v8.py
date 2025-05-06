@@ -33,8 +33,7 @@ def respaldar_archivos():
 
 
 def cargar_csv_sin_encabezado(path, usecols=None):
-    return pd.read_csv(path, sep=";", header=None, usecols=usecols, skiprows=1, dtype=str)
-
+    return pd.read_csv(path, sep=";", header=None, usecols=usecols, skiprows=1, dtype=str, encoding="latin1")
 
 def normalizar_valor(valor):
     return str(valor).lstrip("0") if pd.notna(valor) else ""
@@ -45,7 +44,7 @@ def procesar_vig_transaci(file_name):
     fecha_aaaammdd = "20" + fecha_aammdd
 
     path_vig = os.path.join(DATA_DIR, file_name)
-    df_vig = pd.read_csv(path_vig, sep=";", header=None, skiprows=1, dtype=str)
+    df_vig = pd.read_csv(path_vig, sep=";", header=None, skiprows=1, dtype=str,  encoding="latin1")
 
     # Cargar archivos secundarios
     try:

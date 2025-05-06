@@ -1,0 +1,28 @@
+# Carpetas de datos
+data/
+BK/
+procesados/
+logs/
+
+# Archivos de log
+*.log
+log_no_encontrados.txt
+
+# Entorno virtual
+venv/
+.env/
+.venv/
+
+# Archivos de Python compilados
+__pycache__/
+*.py[cod]
+
+# Archivos temporales de sistema
+*.swp
+*.swo
+*.bak
+.DS_Store
+Thumbs.db
+
+# Archivos de Jupyter o de notebooks temporales
+*.ipynb_checkpoints/
